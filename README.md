@@ -1,2 +1,2 @@
 # CaseStudy2DDS
-DDS: Case Study 2 
+Introduction to DDS: Case Study 2 
