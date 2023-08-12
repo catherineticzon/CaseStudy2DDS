@@ -1,0 +1,1001 @@
+---
+title: "Case Study 2: Employee Attrition"
+author: "Catherine Ticzon" 
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+## Summary  
+
+This Rmarkdown file contains the supporting code for DDS Case Study 2 on employee attrition.  The file is organized in chunks as follows:  
+  
+  i.  Set Up  
+  1.  Data Cleaning  
+  2.  Exploratory Data Analysis (EDA)  
+  3.  Predicting Attrition with knn   
+  4.  Predicting Attrition with naive bayes  
+  5.  Predicting Attrition with linear regression  
+  6.  Predicting Salary with linear regression  
+
+## i. Set Up 
+```{r setup, warning=FALSE}
+library(RCurl)
+library(aws.s3)
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+
+Sys.setenv("AWS_ACCESS_KEY_ID" = "AKIASVYTN36XDQAIQH4K",
+           "AWS_SECRET_ACCESS_KEY" = "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",
+           "AWS_DEFAULT_REGION" = "us-east-2")
+
+# Need AWS_DEFAULT_REGION or else Error when loading in data from s3:
+# Error in parse_aws_s3_response(r, Sig, verbose = verbose) : 
+# Moved Permanently (HTTP 301).
+
+data <- s3read_using(FUN = read.csv,
+                     bucket = "ddsproject1",
+                     object = "CaseStudy2-data.csv")
+```
+
+## 1. Data Cleaning   
+
+  * In this section, I make sure I do not have any missing values and I also change some of the variables to factor levels.  
+  
+```{r, results=FALSE, warning=FALSE}
+sum(is.na(data)) # No missing data 
+
+# Check variables and change character values in columns to factor levels 
+
+table(data$Attrition)
+data$Attrition = factor(data$Attrition, levels = c("No", "Yes"))
+
+table(data$BusinessTravel)
+data$BusinessTravel = factor(data$BusinessTravel, levels = c("Non-Travel", "Travel_Frequently",
+                                                             "Travel_Rarely"))
+
+table(data$Department) 
+data$Department = factor(data$Department, levels = c("Human Resources", "Research & Development", "Sales"))
+
+table(data$EducationField)
+data$EducationField = factor(data$EducationField, levels = c("Human Resources", "Life Sciences", "Marketing", "Medical", "Other", "Technical Degree"))
+
+table(data$Gender)
+data$Gender = factor(data$Gender, levels = c("Female", "Male"))
+
+table(data$JobRole)
+data$JobRole = factor(data$JobRole, levels = c("Healthcare Representative", "Human Resources", "Laboratory Technician", "Manager", "Manufacturing Director", "Research Director", "Research Scientist", "Sales Executive", "Sales Representative"))
+
+table(data$MaritalStatus)
+data$MaritalStatus = factor(data$MaritalStatus, levels = c("Divorced", "Married", "Single"))
+
+```
+
+## 2. Exploratory Data Analysis (EDA)    
+
+  * In this section, I conduct and exploratory data analysis (EDA) to find trends in employee attrition   
+  * I also conduct an EDA on the entire sample to compare to the trends in attrition in order to find variables that disproportionately make-up employee attrition  
+  * This section includes several plots that are hidden in the knitted file  
+  
+```{r, warning=FALSE, fig.show='hide'}
+# install.packages("ggthemes")
+library(ggthemes)
+
+# Explore variables of employees who left
+
+# Create variable of those who left
+quit <- data %>%
+  filter(Attrition == "Yes")
+
+# Summarize attrition by Gender
+ggplot(quit, mapping=aes(x=Gender)) +
+  geom_bar() +
+  geom_text(stat='count', aes(label= ..count..), vjust= -1) + 
+  theme(axis.title.y = element_blank(),
+        axis.title.x = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks = element_blank(),
+        panel.grid.major.y = element_blank(),
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.minor.y = element_blank(),
+        panel.background = element_blank())
+
+# Summarize attrition by Age
+attr_Age <- quit %>%
+  group_by(Age) %>%
+  summarise(count = n())
+
+ggplot(attr_Age, mapping=aes(x=Age, y=count)) +
+  geom_col()
+
+ggplot(attr_Age, mapping=aes(x=Age)) +
+  geom_boxplot()
+
+
+# Summarize attrition by Job Role ----------------------------------------------
+attr_JobRole <- data %>%
+  group_by(JobRole, Attrition) %>%
+  summarise(count = n()) %>%
+  pivot_wider(names_from = Attrition, values_from = count, values_fill = 0) 
+
+attr_JobRole_perc <- attr_JobRole %>%
+  mutate(Yes_Perc = (Yes /140) * 100) 
+
+ggplot(attr_JobRole_perc, mapping=aes(x=JobRole, y=Yes_Perc)) +
+  geom_col(fill="black", width= 0.5) +
+  geom_text(aes(label = sprintf("%.1f%%", Yes_Perc), hjust=-.5)) + 
+    theme(axis.title.y = element_blank(),
+          axis.title.x = element_blank(),
+          axis.text.x = element_blank(),
+          axis.ticks = element_blank(),
+        panel.grid.major.y = element_blank(),
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.minor.y = element_blank(),
+        panel.background = element_blank()) +
+  coord_flip() 
+
+
+# Summarize attrition by Travel 
+attr_Travel <- data %>%
+  group_by(BusinessTravel, Attrition) %>%
+  summarise(count = n()) %>%
+  pivot_wider(names_from = Attrition, values_from = count, values_fill = 0) 
+
+
+# Summarize attrition by DailyRate
+attr_DailyRate <- data %>%
+  group_by(DailyRate, Attrition) %>%
+  summarise(count = n()) %>%
+  pivot_wider(names_from = Attrition, values_from = count, values_fill = 0) 
+
+  
+# Create classes for DailyRate: Lower (100-500), Middle (500-1000), Upper (1000-1500)
+breaks_DailyRate <- data %>% 
+  mutate(DailyRateClass = cut(data$DailyRate, breaks = c(100,500,1000,1500), labels = c("Lower", "Middle", "Upper")))
+                        
+attr_breaks_DailyRate <- breaks_DailyRate %>%
+  group_by(DailyRateClass, Attrition) %>%
+  summarise(count = n()) %>%
+  pivot_wider(names_from = Attrition, values_from = count, values_fill = 0) 
+
+ggplot(data, mapping = aes(x=DailyRate, y=Attrition)) +
+  geom_boxplot()
+
+ 
+# Summarize attrition by Department --------------------------------------------
+attr_Department <- quit %>%
+  group_by(Department) %>%
+  summarise(count = n())
+
+attr_Department_perc <- attr_Department %>%
+  mutate(Department_perc = (count / 140) * 100)
+
+ggplot(attr_Department_perc, mapping=aes(x=Department, y=Department_perc)) +
+  geom_col(fill="black", width = 0.4) +
+  geom_text(aes(label = sprintf("%.1f%%", Department_perc), vjust=2, color="white")) + 
+  theme(axis.title.y = element_blank(),
+        axis.title.x = element_blank(),
+        #axis.text.x = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks = element_blank(),
+        panel.grid.major.y = element_blank(),
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.minor.y = element_blank(),
+        panel.background = element_blank()) +
+   scale_color_identity()
+
+
+# Plot Attrition by Department next to whole sample
+
+#prop_department <- full_join(attr_Department_perc, Department_perc, by="Department") %>%
+#  rename("AttritionPerc"= "Department_perc",
+#         "SamplePerc" = "perc")
+
+
+#ggplot(prop_department, aes(x = Department)) +
+  #geom_bar(aes(y = AttritionPerc, fill = "AttritionPerc"), position = "dodge", stat = "identity") +
+  #geom_bar(aes(y = SamplePerc, fill = "SamplePerc"), position = "dodge", stat = "identity") +
+  #scale_fill_manual(values = c("AttritionPerc" = "red", "SamplePerc" = "blue")) +
+  #labs(x = "Department", y = "Percentage")
+
+
+# Summarize attrition by DistanceFromHome
+attr_Distance <- quit %>%
+  group_by(DistanceFromHome) %>%
+  summarise(count = n())
+
+ggplot(attr_Distance, mapping=aes(x=DistanceFromHome, y=count)) +
+  geom_col(fill="black") +
+  labs(x = "Distance from Home (Units)", y = "Number of Employees") +
+  #geom_text(aes(label = count), vjust = -0.3, color = "black") + 
+  theme(axis.title.y = element_blank(),
+        #axis.title.x = element_blank(),
+        #axis.text.x = element_blank(),
+        #axis.text.y = element_blank(),
+        #axis.ticks = element_blank(),
+        panel.grid.major.y = element_line(color="light grey"),
+        #panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.minor.y = element_blank(),
+        panel.background = element_blank()) 
+
+# Summarize attrition by Education
+attr_Education <- quit %>%
+  group_by(Education) %>%
+  summarise(count = n())
+
+ggplot(attr_Education, mapping=aes(x=Education, y=count)) +
+  geom_col(fill="light gray") +
+  geom_text(aes(label = count), vjust = -0.3, color = "black") + 
+  labs(x="Education Level",
+       y= "Number of Employees") +
+  theme(axis.title.y = element_blank(),
+        #axis.title.x = element_blank(),
+        #axis.text.x = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks = element_blank(),
+        #panel.grid.major.y = element_line(color="light grey"),
+        #panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.minor.y = element_blank(),
+        panel.background = element_blank())
+
+# Summarize attrition by EducationField 
+
+attr_EducationField <- quit %>%
+  group_by(EducationField) %>%
+  summarise(count = n())
+
+ggplot(attr_EducationField, mapping=aes(x=EducationField, y=count)) +
+  geom_col()
+
+# Attriton by JobLevel----------------------------------------------------------
+attr_JobLevel <- quit %>%
+  group_by(JobLevel) %>%
+  summarise(count = n())
+
+ggplot(quit, mapping=aes(x=JobLevel)) +
+  geom_bar()
+
+attr_JobLevel_perc <- attr_JobLevel %>%
+  mutate(JobLevel_perc = (count / 140) * 100)
+
+ggplot(attr_JobLevel_perc, mapping=aes(x=JobLevel, y=JobLevel_perc)) +
+  geom_col(fill="light gray", width=.5) + 
+  geom_text(aes(label = sprintf("%.1f%%", JobLevel_perc))) +
+  theme(axis.title.y = element_blank(), 
+        #axis.title.x = element_blank(),
+        #axis.text.x = element_blank(),
+        axis.text.y = element_blank(), 
+        axis.ticks = element_blank(),
+        panel.grid.major.y = element_blank(),
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.minor.y = element_blank(),
+        panel.background = element_blank()) +
+  labs(x= "Job Level")
+
+
+# Attrition by EnvironmentSatisfaction------------------------------------------
+attr_EnvSat <- quit %>%
+  group_by(EnvironmentSatisfaction) %>%
+  summarise(count=n()) %>%
+  mutate(EnvSat_perc = (count/140) *100)
+
+ggplot(attr_EnvSat, mapping=aes(x=EnvironmentSatisfaction, y=EnvSat_perc)) +
+  geom_col(fill="light gray", width=.5) + 
+  geom_text(aes(label = sprintf("%.1f%%", EnvSat_perc))) +
+  theme(axis.title.y = element_blank(), 
+        #axis.title.x = element_blank(),
+        #axis.text.x = element_blank(),
+        axis.text.y = element_blank(), 
+        axis.ticks = element_blank(),
+        panel.grid.major.y = element_blank(),
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.minor.y = element_blank(),
+        panel.background = element_blank()) +
+  labs(x="Environment Satisfaction")
+
+# Attrition by WorkLifeBalance
+attr_WorkLifeBalance <- quit %>%
+  group_by(WorkLifeBalance) %>%
+  summarise(count=n()) %>%
+  mutate(perc = (count/140) *100)
+
+ggplot(attr_WorkLifeBalance, mapping=aes(x=WorkLifeBalance, y=perc)) +
+  geom_col()
+
+# Attrition by RelationshipSatisfaction
+attr_RelationshipSat <- quit %>%
+  group_by(RelationshipSatisfaction) %>%
+  summarise(count=n()) %>%
+  mutate(perc = (count/140) *100)
+
+ggplot(attr_RelationshipSat, mapping=aes(x=RelationshipSatisfaction, y=perc)) +
+  geom_col()
+
+# Attrition by JobSatisfaction
+attr_JobSat <- quit %>%
+  group_by(JobSatisfaction) %>%
+  summarise(count=n()) %>%
+  mutate(perc = (count/140) *100)
+
+ggplot(attr_JobSat, mapping=aes(x=JobSatisfaction, y=perc)) +
+  geom_col()
+
+# Attrition by PerformanceRating
+attr_PerfRate <- quit %>%
+  group_by(PerformanceRating) %>%
+  summarise(count=n()) %>%
+  mutate(perc = (count/140) *100)
+
+ggplot(attr_PerfRate, mapping=aes(x=PerformanceRating, y=perc)) +
+  geom_col()
+
+# Attrition by PercentSalaryHike
+attr_PercSalHike <- quit %>%
+  group_by(PercentSalaryHike) %>%
+  summarise(count=n()) %>%
+  mutate(perc = (count/140) *100)
+
+ggplot(attr_PercSalHike, mapping=aes(x=PercentSalaryHike, y=perc)) +
+  geom_col()
+
+# Attrition by JobInvolvement-------------------------------------------------- 
+attr_JobInvolv <- quit %>%
+  group_by(JobInvolvement) %>%
+  summarise(count=n()) %>%
+  mutate(perc = (count/140) *100)
+
+ggplot(attr_JobInvolv, mapping=aes(x=JobInvolvement, y=perc)) +
+  geom_col()
+
+# Attrition by YearsSinceLastPromotion 
+attr_YrsPromo <- quit %>%
+  group_by(YearsSinceLastPromotion) %>%
+  summarise(count=n()) %>%
+  mutate(perc = (count/140) *100)
+
+ggplot(attr_YrsPromo, mapping=aes(x=YearsSinceLastPromotion, y=perc)) +
+  geom_col()
+
+# Attrition by TrainingTimesLastYear 
+attr_Training <- quit %>%
+  group_by(TrainingTimesLastYear) %>%
+  summarise(count=n()) %>%
+  mutate(perc = (count/140) *100)
+
+ggplot(attr_Training, mapping=aes(x=TrainingTimesLastYear, y=perc)) +
+  geom_col()
+
+# Attrition by MonthlyIncome
+attr_MonthInc <- quit %>%
+  group_by(MonthlyIncome) %>%
+  summarise(count=n()) %>%
+  mutate(perc = (count/140) *100)
+
+ggplot(attr_MonthInc, mapping=aes(x=MonthlyIncome, y=perc)) +
+  geom_jitter()
+
+ggplot(attr_MonthInc, mapping=aes(x=MonthlyIncome, y=count)) +
+  geom_jitter()
+
+# Explore variables of entire sample =======================================
+
+# Age
+ggplot(data, mapping=aes(x=Age)) +
+  geom_histogram()
+
+
+# Gender
+ggplot(data, mapping=aes(x=Gender, fill=Gender)) +
+  geom_bar() +
+  geom_text(stat='count', aes(label= ..count..), vjust= -1) +
+  scale_fill_manual(values = c("#000000", "#c9c9c9")) +
+  theme(axis.title.y = element_blank(), 
+        panel.grid.major.y = element_blank(),
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.minor.y = element_blank(),
+        panel.background = element_blank())
+
+
+# Job Roles --------------------------------------------------------------------
+JobRole <- data %>%
+  group_by(JobRole) %>%
+  summarise(count = n()) 
+
+JobRole_perc <- JobRole %>%
+  mutate(JobRolePerc = (count /870) * 100) 
+
+# Department 
+Department <- data %>%
+  group_by(Department) %>%
+  summarise(count = n()) 
+
+Department_perc <- Department %>%
+  mutate(perc = (count /870) * 100) 
+
+ggplot(Department_perc, mapping=aes(x=Department, y=perc)) +
+  geom_col(fill="light grey", width=.4) + 
+  geom_text(aes(label = sprintf("%.1f%%", perc), vjust= 1.5)) +
+  theme(axis.title.y = element_blank(), 
+        axis.title.x = element_blank(),
+        #axis.text.x = element_blank(),
+        axis.text.y = element_blank(), 
+        axis.ticks = element_blank(),
+        panel.grid.major.y = element_blank(),
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.minor.y = element_blank(),
+        panel.background = element_blank()) 
+
+# Plot Job Role by Count
+ggplot(data, mapping=aes(x=JobRole)) +
+  geom_bar(fill = "light grey") +
+  geom_text(stat='count', aes(label= ..count..), hjust= -1) +
+  theme(axis.title.y = element_blank(), 
+        axis.title.x = element_blank(),
+        axis.text.x = element_blank(),
+        axis.ticks = element_blank(),
+        panel.grid.major.y = element_blank(),
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.minor.y = element_blank(),
+        panel.background = element_blank()) +
+  coord_flip()
+
+# Plot Job Role by Percentage
+ggplot(JobRole_perc, mapping=aes(x=JobRole, y=JobRolePerc)) +
+  geom_col(fill = "light grey", width= 0.5) +
+  geom_text(aes(label = sprintf("%.1f%%", JobRolePerc), hjust=1.5)) + 
+  theme(axis.title.y = element_blank(), 
+        axis.title.x = element_blank(),
+        axis.text.x = element_blank(),
+        axis.ticks = element_blank(),
+        panel.grid.major.y = element_blank(),
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.minor.y = element_blank(),
+        panel.background = element_blank()) +
+  coord_flip()
+
+# Education
+ggplot(data, mapping=aes(Education)) +
+  geom_bar()
+
+# Education Field
+ggplot(data, mapping=aes(EducationField)) +
+  geom_bar() 
+
+# Job Level---------------------------------------------------------------------
+JobLevel <- data %>%
+  group_by(JobLevel) %>%
+  summarise(count = n()) %>%
+  mutate(JobLevel_perc = (count/870)*100)
+
+ggplot(JobLevel, mapping=aes(x=JobLevel, y=JobLevel_perc)) +
+  geom_col(fill="light gray", width=.5) + 
+  geom_text(aes(label = sprintf("%.1f%%", JobLevel_perc))) +
+  theme(axis.title.y = element_blank(), 
+        #axis.title.x = element_blank(),
+        #axis.text.x = element_blank(),
+        axis.text.y = element_blank(), 
+        axis.ticks = element_blank(),
+        panel.grid.major.y = element_blank(),
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.minor.y = element_blank(),
+        panel.background = element_blank()) +
+  labs(x= "Job Level")
+
+# Environment Satisfaction------------------------------------------------------
+EnvSat <- data %>%
+  group_by(EnvironmentSatisfaction) %>%
+  summarise(count=n()) %>%
+  mutate(EnvSat_perc = (count/870) *100)
+
+ggplot(EnvSat, mapping=aes(x=EnvironmentSatisfaction, y=EnvSat_perc)) +
+  geom_col(fill="light gray", width=.5) + 
+  geom_text(aes(label = sprintf("%.1f%%", EnvSat_perc))) +
+  theme(axis.title.y = element_blank(), 
+        #axis.title.x = element_blank(),
+        #axis.text.x = element_blank(),
+        axis.text.y = element_blank(), 
+        axis.ticks = element_blank(),
+        panel.grid.major.y = element_blank(),
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.minor.y = element_blank(),
+        panel.background = element_blank()) +
+  labs(x="Environment Satisfaction")
+
+# WorkLifeBalance
+WorkLifeBalance <- data %>%
+  group_by(WorkLifeBalance) %>%
+  summarise(count=n()) %>%
+  mutate(perc = (count/870) *100)
+
+ggplot(WorkLifeBalance, mapping=aes(x=WorkLifeBalance, y=perc)) +
+  geom_col()
+
+# RelationshipSatisfaction
+RelationshipSat <- data %>%
+  group_by(RelationshipSatisfaction) %>%
+  summarise(count=n()) %>%
+  mutate(perc = (count/870) *100)
+
+ggplot(RelationshipSat, mapping=aes(x=RelationshipSatisfaction, y=perc)) +
+  geom_col()
+
+# JobSatisfaction
+JobSat <- data %>%
+  group_by(JobSatisfaction) %>%
+  summarise(count=n()) %>%
+  mutate(perc = (count/870) *100)
+
+ggplot(JobSat, mapping=aes(x=JobSatisfaction, y=perc)) +
+  geom_col()
+
+# PerformanceRating
+PerfRate <- data %>%
+  group_by(PerformanceRating) %>%
+  summarise(count=n()) %>%
+  mutate(perc = (count/870) *100)
+
+ggplot(PerfRate, mapping=aes(x=PerformanceRating, y=perc)) +
+  geom_col()
+
+# PercentSalaryHike
+PercSalHike <- data %>%
+  group_by(PercentSalaryHike) %>%
+  summarise(count=n()) %>%
+  mutate(perc = (count/870) *100)
+
+ggplot(PercSalHike, mapping=aes(x=PercentSalaryHike, y=perc)) +
+  geom_col()
+
+# JobInvolvement ---------------------------------------------------------------
+JobInvolv <- data %>%
+  group_by(JobInvolvement) %>%
+  summarise(count=n()) %>%
+  mutate(perc = (count/870) *100)
+
+ggplot(JobInvolv, mapping=aes(x=JobInvolvement, y=perc)) +
+  geom_col()
+
+# YearsSinceLastPromotion 
+YrsPromo <- data %>%
+  group_by(YearsSinceLastPromotion) %>%
+  summarise(count=n()) %>%
+  mutate(perc = (count/870) *100)
+
+ggplot(YrsPromo, mapping=aes(x=YearsSinceLastPromotion, y=perc)) +
+  geom_col()
+
+# TrainingTimesLastYear 
+Training <- data %>%
+  group_by(TrainingTimesLastYear) %>%
+  summarise(count=n()) %>%
+  mutate(perc = (count/870) *100)
+
+ggplot(Training, mapping=aes(x=TrainingTimesLastYear, y=perc)) +
+  geom_col()
+
+# MonthlyIncome
+MonthInc <- data %>%
+  group_by(MonthlyIncome) %>%
+  summarise(count=n()) %>%
+  mutate(perc = (count/870) *100)
+
+ggplot(MonthInc, mapping=aes(x=MonthlyIncome, y=perc)) +
+  geom_jitter()
+
+ggplot(MonthInc, mapping=aes(x=MonthlyIncome, y=count)) +
+  geom_jitter()
+
+
+# Misc plotting and EDA ------------------------------------------------------
+
+
+# group_by JobRole 
+
+jr_income <- data %>%
+  group_by(JobRole) %>%
+  summarise(mean_income = mean(MonthlyIncome))
+
+jr_jobinvolv <- data %>%
+  group_by(JobRole) %>%
+  summarise(mean_jobinvolv = mean(JobInvolvement))
+
+jr_envsat <- data %>%
+  group_by(JobRole) %>%
+  summarise(mean_envsat = mean(EnvironmentSatisfaction))
+
+# Boxplot of JobLevel by JobRole
+ggplot(data, mapping=aes(x=JobRole, y=JobLevel)) +
+  geom_boxplot() +
+  labs(title="Boxplot of Job Level by Job Role",
+       subtitle="n=870",
+       y="Job Level") + 
+  theme(axis.title.y = element_blank(), 
+        #axis.title.x = element_blank(),
+        #axis.text.x = element_text(angle=90, hjust =.95, vjust= .2),
+        axis.ticks = element_blank(),
+        panel.grid.major.y = element_line(color="grey"),
+        panel.background = element_blank()) +
+  coord_flip()
+
+
+jr_promo <- data %>%
+  group_by(JobRole) %>%
+  summarise(mean_promo = mean(YearsSinceLastPromotion))
+
+ggplot(data, aes(x=JobRole, y=YearsAtCompany)) +
+  geom_boxplot() +
+  coord_flip() +
+  theme(axis.title.y = element_blank(),
+        panel.grid.major.y = element_blank(),
+        panel.grid.major.x = element_line(color="grey"),
+        panel.grid.minor.x = element_line(color="grey"),
+        #panel.grid.minor.y = element_line(color="grey"),
+        panel.background = element_blank()) +
+  labs(title= "Boxplot of Number of Years at Company by Job Role",
+       subtitle ="n=870",
+        x="Job Role", y="Number of Years at Company")
+```
+
+
+## 3. Analysis of Variables Related to Attrition  
+```{r}
+
+# Model JobLevel ~ Attrition
+model_JobLevel <- lm(JobLevel ~ Attrition, data = data)
+summary(model_JobLevel)
+
+ggplot(data, aes(x=JobLevel, y=Attrition)) +
+  geom_jitter()
+
+# Plot JobLevel, Job Role, and Attrition
+
+data %>% ggplot(aes(x=JobRole, y = JobLevel, color=Attrition)) +
+  geom_jitter(alpha = .5) +
+  theme(axis.text.x = element_text(angle=90, hjust =.95, vjust= .2),
+        panel.grid.major.y = element_line(color="grey"),
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_line(color="grey"),
+        panel.grid.minor.y = element_line(color="grey"),
+        panel.background = element_blank()) +
+  labs(title= "Attrition Cases by Job Role and Job Level",
+       subtitle ="n=870",
+        x="Job Role", y="Job Level") 
+
+
+# Plot Environment Satisfaction, Job Level, Departmen ~ Attrition 
+
+theme_set(theme_bw())  # pre-set the bw theme.
+g <- ggplot(data, aes(EnvironmentSatisfaction, JobLevel)) + 
+  labs(subtitle="n=870",
+       title="Attrition by Environment Satisfaction, Job Level, and Department",
+       x="Environment Satisfaction",
+       y="Job Level")
+
+g + geom_jitter(aes(col=Attrition, shape = Department), size=3, alpha=.7) + 
+  geom_smooth(aes(col=Attrition), method="lm", se=F) +
+  scale_color_manual(values = c("No" = "grey", "Yes" = "red")) +
+  theme(panel.grid.major.y = element_line(color="grey"),
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_line(color="grey"),
+        panel.grid.minor.y = element_line(color="grey"),
+        panel.background = element_blank())
+
+# Switch x and y axis 
+
+theme_set(theme_bw())  # pre-set the bw theme.
+h <- ggplot(data, aes(JobLevel, EnvironmentSatisfaction)) + 
+  labs(subtitle="n=870",
+       title="Attrition by Environment Satisfaction, Job Level, and Department",
+       x="Job Level",
+       y="Environment Satisfaction")
+
+h + geom_jitter(aes(col=Attrition, shape = Department), size=3, alpha=.7) + 
+  #geom_smooth(aes(col=Attrition), method="lm", se=F) +
+  scale_color_manual(values = c("No" = "grey", "Yes" = "red")) +
+  theme(panel.grid.major.y = element_line(color="grey"),
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_line(color="grey"),
+        panel.grid.minor.y = element_line(color="grey"),
+        panel.background = element_blank())
+
+
+# Model Job Role + Job Satisfaction  ~ Attrition
+
+ggplot(data, aes(x=JobLevel, y=Attrition)) +
+  geom_jitter()
+
+
+```
+
+
+## 4. Predicting Attrition with knn   
+
+  *  In this section, I create and evaluate several models to find a suitable model to apply to a dataset where Attrition is unknown  
+  * Model 7 produces a model where both specificity and sensitivity are above 60%.  This model is applied to the Attrition Competition data set to predict attrition.  
+  
+```{r}
+library(class)
+library(caret)
+
+# Load in the set that will be used as the final test set/competition set 
+attrition_comp <- s3read_using(FUN = read.csv,
+                     bucket = "ddsproject1",
+                     object = "CaseStudy2CompSet No Attrition.csv")
+
+# Change Attrition to numeric levels (Yes=1 / No=0)
+data2 <- data %>%
+  mutate(Attrition = recode(Attrition, Yes = "1", No = '0'))
+
+# Create training indices for knn model  
+set.seed(1)
+splitPerc = .7
+
+trainInd_attr = sample(1:dim(data2)[1], round(splitPerc * dim(data2)[1]))
+train_attr = data2[trainInd_attr,]
+test_attr = data2[-trainInd_attr,]
+
+# Model 2: JobLevel and EnvironmentSatisfaction --------------------------------
+train2 <- train_attr %>%
+  select(JobLevel, EnvironmentSatisfaction, Attrition)
+
+test2 <- test_attr %>%
+  select(JobLevel,EnvironmentSatisfaction, Attrition)
+
+knn_model2 = knn(train2[,c(1,2)], test2[,c(1,2)], train2$Attrition, k=5, prob=TRUE)
+confusionMatrix(table(knn_model2, test2$Attrition)) 
+
+# Change Threshold
+probs = ifelse(knn_model2 == "1", attributes(knn_model2)$prob, 1- attributes(knn_model2)$prob) 
+
+# New Threshold
+summary(data2$Attrition)
+# 140/870 = 16% left 
+
+NewClass = ifelse(probs > .14, "1", "0")
+table(NewClass, test2[,3])
+CM = confusionMatrix(table(NewClass, test2[,3]), mode = "everything")
+CM
+
+
+
+# Model 3: JobInvolvement and RelationshipSatisfaction -------------------------
+train3 <- train_attr %>%
+  select(JobInvolvement, RelationshipSatisfaction, Attrition)
+
+test3 <- test_attr %>%
+  select(JobInvolvement, RelationshipSatisfaction, Attrition)
+
+knn_model3 = knn(train3[,c(1,2)], test3[,c(1,2)], train3$Attrition, k=5, prob=TRUE)
+
+confusionMatrix(table(knn_model3, test3$Attrition)) 
+
+# Change threshold 
+probs3 = ifelse(knn_model3 == "1", attributes(knn_model3)$prob, 1- attributes(knn_model3)$prob) 
+
+#New Threshold
+summary(data2$Attrition)
+# 140/870 = 16% left 
+
+NewClass3 = ifelse(probs3 > .17, "1", "0")
+table(NewClass3, test3[,3])
+CM3 = confusionMatrix(table(NewClass3, test3[,3]), mode = "everything")
+CM3
+
+
+
+# Model 4: JobInvolvement and Age ----------------------------------------------
+train4 <- train_attr %>%
+  select(JobInvolvement, Age, Attrition)
+
+test4 <- test_attr %>%
+  select(JobInvolvement, Age, Attrition)
+
+knn_model4 = knn(train4[,c(1,2)], test4[,c(1,2)], train4$Attrition, k=5, prob=TRUE)
+
+confusionMatrix(table(knn_model4, test4$Attrition)) 
+
+# Change threshold 
+probs4 = ifelse(knn_model4 == "1", attributes(knn_model4)$prob, 1- attributes(knn_model4)$prob) 
+
+#New Threshold
+summary(data2$Attrition)
+# 140/870 = 16% left 
+
+NewClass4 = ifelse(probs4 > .1, "1", "0")
+table(NewClass4, test4[,3])
+CM4 = confusionMatrix(table(NewClass4, test4[,3]), mode = "everything")
+CM4
+
+
+# Model 5: JobLevel and NumCompaniesWorked -------------------------------------
+train5 <- train_attr %>%
+  select(JobLevel, NumCompaniesWorked, Attrition)
+
+test5 <- test_attr %>%
+  select(JobLevel, NumCompaniesWorked, Attrition)
+
+knn_model5 = knn(train5[,c(1,2)], test5[,c(1,2)], train5$Attrition, k=5, prob=TRUE)
+
+confusionMatrix(table(knn_model5, test5$Attrition)) 
+
+# Change threshold  
+probs5 = ifelse(knn_model5 == "1", attributes(knn_model5)$prob, 1- attributes(knn_model5)$prob) 
+
+#New Threshold
+summary(data2$Attrition)
+# 140/870 = 16% left 
+
+NewClass5 = ifelse(probs5 > .16, "1", "0")
+table(NewClass5, test5[,3])
+CM5= confusionMatrix(table(NewClass5, test5[,3]), mode = "everything")
+CM5
+
+
+# Model 6: RelationshipSatisfaction and NumCompaniesWorked ---------------------
+train6 <- train_attr %>%
+  select(RelationshipSatisfaction, NumCompaniesWorked, Attrition)
+
+test6 <- test_attr %>%
+  select(RelationshipSatisfaction, NumCompaniesWorked, Attrition)
+
+knn_model6 = knn(train6[,c(1,2)], test6[,c(1,2)], train6$Attrition, k=5, prob=TRUE)
+
+confusionMatrix(table(knn_model6, test6$Attrition)) 
+
+# Change threshold  
+probs6 = ifelse(knn_model6 == "1", attributes(knn_model6)$prob, 1- attributes(knn_model6)$prob) 
+
+#New Threshold
+summary(data2$Attrition)
+# 140/870 = 16% left 
+
+NewClass6 = ifelse(probs6 > .18, "1", "0")
+table(NewClass6, test6[,3])
+CM6= confusionMatrix(table(NewClass6, test6[,3]), mode = "everything")
+CM6
+
+# Model 7: YearsInCurrent Role, YearsSinceLastPromotion, Age, JobLevel ---------
+# Use this model - specificity and sensitivity are both over 60 ----------------
+
+train7 <- train_attr %>%
+  select(YearsInCurrentRole, YearsSinceLastPromotion, Age, JobLevel, Attrition)
+
+test7 <- test_attr %>%
+  select(YearsInCurrentRole, YearsSinceLastPromotion, Age, JobLevel, Attrition)
+
+knn_model7 = knn(train7[,c(1,4)], test7[,c(1,4)], train7$Attrition, k=5, prob=TRUE)
+
+confusionMatrix(table(knn_model7, test7$Attrition)) 
+
+# Change threshold 
+#Get probs of a FRAUD specifically
+probs7 = ifelse(knn_model7 == "1", attributes(knn_model7)$prob, 1- attributes(knn_model7)$prob) 
+
+#New Threshold
+summary(data2$Attrition)
+# 140/870 = 16% left 
+
+NewClass7 = ifelse(probs7 > .17, "1", "0")
+table(NewClass7, test7[,5])
+CM7= confusionMatrix(table(NewClass7, test7[,5]), mode = "everything")
+CM7
+
+
+# Apply Model 7 to Attrition Competition Set -----------------------------------
+comp7 <- attrition_comp %>%
+  select(YearsInCurrentRole, YearsSinceLastPromotion, Age, JobLevel)
+
+knn_comp7 = knn(train7[,c(1,3)], comp7[,c(1,3)], train7$Attrition, k=5, prob=TRUE)
+knn_comp7
+
+summary(knn_comp7)
+
+write.csv(attrition_comp,"C:\\Users\\48103982\\Documents\\MSDS\\6306 Doing Data Science\\Project 2\\CaseStudy2PredictionsTiczon_Attrition.csv")
+
+```
+
+## 5. Predicting Attrition with Linear Regression  
+
+  * Here I attempt to create a model using linear regression; I do not ultimately use this for prediction  
+  
+```{r}
+data3 <- data2 # Create copy of data frame where some variables are numeric,  not factor level
+
+data3$JobLevel = as.numeric(data3$JobLevel) 
+data3$EnvironmentSatisfaction = as.numeric(data3$EnvironmentSatisfaction) 
+data3$Attrition = as.numeric(as.character(data3$Attrition))
+
+lm_model1 <- lm(Attrition ~ JobLevel + EnvironmentSatisfaction, data=data3)
+print(lm_model1)
+summary(lm_model1)
+
+predict(lm_model1)  
+#predict(lm_model1, newdata= comp2) 
+```
+
+## 6. Predicting Attrition with Naive Bayes   
+
+ * Here I attempt to create a model using Naive Bayes; I do not ultimately use this for prediction  
+```{r}
+#install.packages("e1071")
+#update.packages()
+Sys.setenv(R_REMOTES_NO_ERRORS_FROM_WARNINGS=TRUE) # run this if e1071 isn't loading 
+library(e1071) 
+
+
+NBtrainIndices = sample(seq(1:length(data3$EnvironmentSatisfaction)),round(.7*length(data3$EnvironmentSatisfaction)))
+NBtrain = data3[NBtrainIndices,]
+NBtest = data3[-NBtrainIndices,]
+
+nb_model = naiveBayes(NBtrain[,c("EnvironmentSatisfaction","JobLevel")], factor(NBtrain$Attrition, labels = c("No", "Yes")))
+
+nbCM = confusionMatrix(table(factor(NBtest$Attrition, 
+                                  labels = c("No", "Yes")),
+                           predict(nb_model, NBtest[,c("EnvironmentSatisfaction","JobLevel")])))
+nbCM
+```
+
+
+
+## 7. Predicting Salary  
+
+  *  In this section, I create and evaluate a linear regression model to predict Monthly Income of employees in the Salary Competition data set
+  *  The model uses Job Level as the predictor variable  
+  *  The model's RMSE is \$1414.96 which is less than the maximum RMSE (\$3000) requirement of the model 
+```{r}
+salary_comp <- s3read_using(FUN = read.csv,
+                     bucket = "ddsproject1",
+                     object = "CaseStudy2CompSet No Salary.csv")
+
+
+# Create and evaluate model ----------------------------------------------------
+
+pred_error_sq <- c(0)
+for(i in 1:dim(data3)[1]) {
+ salary_train <- data3[-i,]
+  fit <- lm(MonthlyIncome ~ JobLevel, data = salary_train)  
+  salary_i <- predict(fit, data.frame(JobLevel = data3[i,16]))  
+  pred_error_sq <- pred_error_sq + (data3[i,20] - salary_i)^2  
+}
+
+SSE = var(salary_comp$JobLevel) * (869)
+
+R_squared <- 1 - (pred_error_sq/SSE) 
+R_squared
+
+MSE = pred_error_sq / 870
+MSE
+
+RMSE = sqrt(pred_error_sq/870)
+RMSE # $1414.96 < $3000 
+
+# Apply model to Salary Competition Set ----------------------------------------
+
+predicted_monthly_income <- numeric(dim(salary_comp)[1])  # Initialize a vector to store predictions
+
+for(i in 1:dim(salary_comp)[1]) {
+  salary_train <- data3  # Use original dataset for training the model
+  fit <- lm(MonthlyIncome ~ JobLevel, data = salary_train)
+  salary_i <- predict(fit, newdata = data.frame(JobLevel = salary_comp[i, "JobLevel"]))
+  predicted_monthly_income[i] <- salary_i
+}
+salary_comp$PredictedMonthlyIncome <- predicted_monthly_income
+
+write.csv(salary_comp, "C:\\Users\\48103982\\Documents\\MSDS\\6306 Doing Data Science\\Project 2\\CaseStudy2PredictionsTiczon_Salary.csv")
+
+```
+
