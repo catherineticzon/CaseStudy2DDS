@@ -30,9 +30,14 @@ Given the sample of 870 employees where attrition is known, the following trends
 
 **Job Level**
  * Employees with job level = 1 make up the majority of attrition cases; 61.4% of attrition was of job level 1 employees, though job level 1 only makes up around 38% of the entire sample
-
+ * Job level is 1 for the majority of Sales Representatives, Research Scientists, Laboratory Technicians, and Human Resources job roles
+   
 **Environment Satisfaction**
- * Employees who had a value of 1 in environment satisfaction disproportionately made up the attrition cases; 20% of the entire sample had environment satisfaction = 1 but 30% of attrition had environment satisfaction = 1 
+ * Employees who had a value of 1 in environment satisfaction disproportionately made up the attrition cases; 20% of the entire sample had environment satisfaction = 1 but 30% of attrition had environment satisfaction = 1
+
+**Monthly Income**  
+ * Sales Representatives have the lowest mean monthly income ($2,6552.83) across all job roles
+ * Managers and Research Directors have the two highest mean monthly incomes ($17,1797.15 and $15,749.90 respectively)  
 
 
 ## Prediction Models  
