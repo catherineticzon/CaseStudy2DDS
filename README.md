@@ -13,7 +13,8 @@ In this repository, you will find:
   * A CSV file with the predicted employee attrition
   * A CSV file with the predicted employee monthly salary
 
-Click <a href="http://catherineticzon.github.io">here</a> to find my GitHub webpage and navigate to the Projects tab to see my **projects and Rshiny apps.**   
+Click <a href="http://catherineticzon.github.io">here</a> to find my GitHub webpage and navigate to the Projects tab to see my **projects and Rshiny apps.**    
+Click <a href="https://youtu.be/lbArHBZwrpE">here</a> for my recordered presentation.
 
 ## High-Level Trends 
 Given the sample of 870 employees where attrition is known, the following trends were discovered during an exploratory data analysis:  
@@ -36,9 +37,9 @@ Given the sample of 870 employees where attrition is known, the following trends
 
 ## Prediction Models  
 ### Predicting Attrition with knn 
-To predict attrition, I used a knn model that had a sensitity of 62.27% and specificity of 60.98%. The model used the variables: years in current role, years since last promotion, age, and job level. When applied to the Attriton Competition dataset, the model predicted that 290 employees would **not** attrit and 10 employees **would attrit.**  The code for this model can be found in the Rmarkdown file of this repository (lines 871-905) and the dataset with the predicted attrition as well ("Case2PredictionsTiczon_Attrition.csv"). 
+To predict attrition, I used a knn model that had a sensitity of 62.27% and specificity of 60.98%. The model used the variables: years in current role, years since last promotion, age, and job level. When applied to the Attriton Competition dataset, the model predicted that 290 employees would **not** attrit and 10 employees **would attrit.**  The code for this model can be found in the Rmarkdown file of this repository (lines 871-905) and the dataset with the predicted attrition as well (see file **"Case2PredictionsTiczon_Attrition.csv"**). 
 
 
 ### Predicting Salary with linear regression 
-To predict monthly income, I used a linear regression model that had an RMSE of 1414.96. The outcome variable used was monthly income and the predictor variable was job level. When I applied this model to the Salary Competition data set, the model predicted the monthly income of each of the 300 employees. The code for this model can be found in the Rmarkdown file of this repository (lines 960-996) and the dataset with the predicted monthly income as well ("Case2PredictionsTiczon_Salary.csv").  
+To predict monthly income, I used a linear regression model that had an RMSE of 1414.96. The outcome variable used was monthly income and the predictor variable was job level. When I applied this model to the Salary Competition data set, the model predicted the monthly income of each of the 300 employees. The code for this model can be found in the Rmarkdown file of this repository (lines 960-996) and the dataset with the predicted monthly income as well (see file **"Case2PredictionsTiczon_Salary.csv"**).  
 
