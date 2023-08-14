@@ -26,8 +26,8 @@ library(tidyverse)
 library(dplyr)
 library(ggplot2)
 
-Sys.setenv("AWS_ACCESS_KEY_ID" = "AKIASVYTN36XDQAIQH4K",
-           "AWS_SECRET_ACCESS_KEY" = "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",
+Sys.setenv("AWS_ACCESS_KEY_ID" = "############",
+           "AWS_SECRET_ACCESS_KEY" = "############",
            "AWS_DEFAULT_REGION" = "us-east-2")
 
 # Need AWS_DEFAULT_REGION or else Error when loading in data from s3:
